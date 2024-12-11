@@ -272,73 +272,78 @@ class Game {
 private:
     unique_ptr<Character> player1;
     unique_ptr<Character> player2;
+    int clientSocket1;
+    int clientSocket2;
     mutex mtx;
 
 public:
-    Game(unique_ptr<Character> p1, unique_ptr<Character> p2)
-        : player1(move(p1)), player2(move(p2)) {}
+    Game(unique_ptr<Character> p1, unique_ptr<Character> p2, int cs1, int cs2)
+        : player1(move(p1)), player2(move(p2)), clientSocket1(cs1), clientSocket2(cs2) {}
 
-    void playerTurn(int playerNum, int clientSocket, Character& currentPlayer, Character& opponent) {
+    void playerTurn(int playerNum, Character& currentPlayer, Character& opponent) {
         int action;
         while (currentPlayer.isAlive() && opponent.isAlive()) {
             // Отправка информации о текущем состоянии игроков
-            string info = "Ваш ход. ";
+            string info = "Ход игрока " + to_string(playerNum) + ".\n";
             info += "Ваше здоровье: " + to_string(currentPlayer.getHealth()) + "\n";
             info += "Здоровье противника: " + to_string(opponent.getHealth()) + "\n";
-            send(clientSocket, info.c_str(), info.size(), 0);
+            
+            // Отправка информации о состоянии игры на оба клиентских сокета
+            send(clientSocket1, info.c_str(), info.size(), 0);
+            send(clientSocket2, info.c_str(), info.size(), 0);
 
             // Запрос действия от игрока
-            recv(clientSocket, &action, sizeof(action), 0);
+            recv(playerNum == 1 ? clientSocket1 : clientSocket2, &action, sizeof(action), 0);
 
             switch (action) {
-                case 1: // Атаковать
-                    currentPlayer.attack(opponent);
-                    break;
-                case 2: // Исцелиться
-                    currentPlayer.heal();
-                    break;
-                case 3: // Использовать способность
-                    currentPlayer.useAbility(opponent);
-                    break;
-                default:
-                    cout << "Неверное действие. Попробуйте снова." << endl;
-                    continue; // Пропустить итерацию цикла
-            }
-
-            // Применение урона от горения (если применимо)
-            if (auto mage = dynamic_cast<Mage*>(&currentPlayer)) {
-                mage->applyBurn();
-            }
-
-            // Проверка, жив ли противник
-            if (!opponent.isAlive()) {
-                string victoryMsg = "Вы победили противника!\n";
-                send(clientSocket, victoryMsg.c_str(), victoryMsg.size(), 0);
+            case 1: // Атаковать
+                currentPlayer.attack(opponent);
                 break;
-            }
-
-            // Смена хода без использования swap
-            if (playerNum == 1) {
-                playerTurn(2, clientSocket, *player2, *player1); // Передаем ход второму игроку
-            } else {
-                playerTurn(1, clientSocket, *player1, *player2); // Передаем ход первому игроку
-            }
+            case 2: // Исцелиться
+                currentPlayer.heal();
+                break;
+            case 3: // Использовать способность
+                currentPlayer.useAbility(opponent);
+                break;
+            default:
+                cout << "Неверное действие. Попробуйте снова." << endl;
+                continue; // Пропустить итерацию цикла
         }
-    }
 
-    void startGame(int clientSocket1, int clientSocket2) {
+        // Применение урона от горения (если применимо)
+        if (auto mage = dynamic_cast<Mage*>(&currentPlayer)) {
+            mage->applyBurn();
+        }
+
+        // Проверка, жив ли противник
+        if (!opponent.isAlive()) {
+            string victoryMsg = "Игрок " + to_string(playerNum) + " победил!\n";
+            send(clientSocket1, victoryMsg.c_str(), victoryMsg.size(), 0);
+            send(clientSocket2, victoryMsg.c_str(), victoryMsg.size(), 0);
+            break;
+        }
+
+        if (playerNum == 1) {
+                playerTurn(2, *player2, *player1); // Передаем ход второму игроку
+            } else {
+                playerTurn(1, *player1, *player2); // Передаем ход первому игроку
+            }
+    }
+}
+
+void startGame() {
         while (player1->isAlive() && player2->isAlive()) {
-            playerTurn(1, clientSocket1, *player1, *player2);
+            playerTurn(1, *player1, *player2);
             if (!player2->isAlive()) {
                 break;
             }
-            playerTurn(2, clientSocket2, *player2, *player1);
+            playerTurn(2, *player2, *player1);
         }
     }
 
-void handleClient(int clientSocket, CharacterFactory& factory, int serverSocket, unique_ptr<Character>& player1, unique_ptr<Character>& player2) {
-    int choice;
-    recv(clientSocket, &choice, sizeof(choice), 0);
+void handleClient(int clientSocket, CharacterFactory& factory, int serverSocket) {
+        int choice;
+        recv(clientSocket, &choice, sizeof(choice), 0);
 
     // Проверяем, какой игрок подключен (player1 или player2)
     if (!player1) {
@@ -358,7 +363,8 @@ void handleClient(int clientSocket, CharacterFactory& factory, int serverSocket,
                 return;
         }
         cout << "Игрок 1 выбрал класс: ";
-        player1->info();
+            player1->info();
+            clientSocket1 = clientSocket;
     } else if (!player2) {
         switch (choice) {
             case 1:
@@ -376,18 +382,16 @@ void handleClient(int clientSocket, CharacterFactory& factory, int serverSocket,
                 return;
         }
         cout << "Игрок 2 выбрал класс: ";
-        player2->info();
+            player2->info();
+            clientSocket2 = clientSocket;
     }
 
-    // Если оба игрока выбрали персонажей, запускаем игру
     if (player1 && player2) {
-        // Запуск игрового процесса
-        Game game(move(player1), move(player2)); // Создаем объект игры
-        game.startGame(clientSocket, serverSocket); // Передаем сокеты
+            // Запуск игрового процесса
+            Game game(move(player1), move(player2), clientSocket1, clientSocket2); // Создаем объект игры
+            game.startGame(); // Запуск игры
     }
 }
-
-
 
 
 };
@@ -412,21 +416,23 @@ int main() {
     unique_ptr<Character> player2 = nullptr;
 
     // В функции main
+    shared_ptr<Game> game;
+
     while (true) {
         int clientSocket = accept(serverSocket, nullptr, nullptr);
-        cout << "Игрок подключен." << endl;
-
-        // Создаем новый поток для обработки клиента
-        thread(&Game::handleClient, make_shared<Game>(nullptr, nullptr), clientSocket, ref(factory), serverSocket, ref(player1), ref(player2)).detach();
-        
-        // Если оба игрока выбрали персонажей, выходим из цикла
-        if (player1 && player2) {
-            break; // Выход из цикла подключения
+        if (clientSocket == -1) {
+            cerr << "Ошибка при принятии соединения" << endl;
+            continue;
         }
-    }
 
-    // После выхода из цикла, игра начинается
-    // Здесь можно добавить код для обработки завершения игры, если нужно
+        thread t([&](int clientSocket, CharacterFactory& factory, int serverSocket, shared_ptr<Game>& game) {
+            if (!game) {
+                game = make_shared<Game>(nullptr, nullptr, clientSocket, clientSocket);
+            }
+            game->handleClient(clientSocket, factory, serverSocket);
+        }, clientSocket, ref(factory), serverSocket, ref(game));
+        t.detach();
+    }
 
     close(serverSocket);
     return 0;
