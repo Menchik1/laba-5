@@ -178,6 +178,7 @@ private:
     int health = 29;
     bool invisible = false;
     int abilityCooldown = 0; // Откат способности
+    int invisibilityTurns = 0; // Счетчик оставшихся ходов невидимости
 
 public:
     void info() override {
@@ -185,6 +186,10 @@ public:
     }
 
     void attack(Character& target) override {
+        if (invisible) {
+            cout << "Лучник невидим и не может быть атакован!" << endl;
+            return; // Невидимый лучник не может быть атакован
+        }
         int damage = 8;
         cout << "Лучник атакует на " << damage << " урона!" << endl;
         target.takeDamage(damage);
@@ -205,14 +210,19 @@ public:
     }
 
     void takeDamage(int damage) override {
-        health -= damage;
-        cout << "Лучник получил " << damage << " урона! Здоровье: " << health << endl;
+        if (!invisible) { // Если не невидим, получаем урон
+            health -= damage;
+            cout << "Лучник получил " << damage << " урона! Здоровье: " << health << endl;
+        } else {
+            cout << "Лучник невидим и не получает урон!" << endl;
+        }
     }
 
     void useAbility(Character& target) override {
         if (canUseAbility()) {
             cout << "Лучник использует плащ невидимости!" << endl;
             invisible = true;
+            invisibilityTurns = 2; // Невидимость активна в течение двух ходов
             abilityCooldown = 3; // Откат 3 хода
         } else {
             cout << "Способность еще не готова к использованию! Осталось ходов: " << getAbilityCooldown() << endl;
@@ -233,12 +243,14 @@ public:
         return abilityCooldown;
     }
 
-    bool isInvisible() const {
-        return invisible;
-    }
-
-    void endInvisibility() {
-        invisible = false;
+    void updateInvisibility() {
+        if (invisibilityTurns > 0) {
+            invisibilityTurns--;
+            if (invisibilityTurns == 0) {
+                invisible = false; // Сбросить невидимость
+                cout << "Невидимость закончилась!" << endl;
+            }
+        }
     }
 };
 
@@ -287,7 +299,7 @@ public:
         string info = "Ход игрока " + to_string(playerNum) + ".\n";
         info += "Ваше здоровье: " + to_string(currentPlayer.getHealth()) + "\n";
         info += "Здоровье противника: " + to_string(opponent.getHealth()) + "\n";
-        
+
         // Отправка информации о состоянии игры на оба клиентских сокета
         send(clientSocket1, info.c_str(), info.size(), 0);
         send(clientSocket2, info.c_str(), info.size(), 0);
@@ -310,9 +322,9 @@ public:
                 continue; // Пропустить итерацию цикла
         }
 
-        // Применение урона от горения (если применимо)
-        if (auto mage = dynamic_cast<Mage*>(&currentPlayer)) {
-            mage->applyBurn();
+        // Обновление состояния невидимости
+        if (auto archer = dynamic_cast<Archer*>(&currentPlayer)) {
+            archer->updateInvisibility();
         }
 
         // Проверка, жив ли противник
@@ -332,6 +344,8 @@ public:
         }
     }
 }
+
+
 
 
 void startGame() {
