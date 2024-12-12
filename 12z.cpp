@@ -251,7 +251,7 @@ public:
     virtual ~CharacterFactory() = default;
 };
 
-// Фабрика для Земли
+// Фабрика для героев
 class ConcreteFactory : public CharacterFactory {
 public:
     unique_ptr<Character> createMage() override {
@@ -281,21 +281,21 @@ public:
         : player1(move(p1)), player2(move(p2)), clientSocket1(cs1), clientSocket2(cs2) {}
 
     void playerTurn(int playerNum, Character& currentPlayer, Character& opponent) {
-        int action;
-        while (currentPlayer.isAlive() && opponent.isAlive()) {
-            // Отправка информации о текущем состоянии игроков
-            string info = "Ход игрока " + to_string(playerNum) + ".\n";
-            info += "Ваше здоровье: " + to_string(currentPlayer.getHealth()) + "\n";
-            info += "Здоровье противника: " + to_string(opponent.getHealth()) + "\n";
-            
-            // Отправка информации о состоянии игры на оба клиентских сокета
-            send(clientSocket1, info.c_str(), info.size(), 0);
-            send(clientSocket2, info.c_str(), info.size(), 0);
+    int action;
+    while (currentPlayer.isAlive() && opponent.isAlive()) {
+        // Отправка информации о текущем состоянии игроков
+        string info = "Ход игрока " + to_string(playerNum) + ".\n";
+        info += "Ваше здоровье: " + to_string(currentPlayer.getHealth()) + "\n";
+        info += "Здоровье противника: " + to_string(opponent.getHealth()) + "\n";
+        
+        // Отправка информации о состоянии игры на оба клиентских сокета
+        send(clientSocket1, info.c_str(), info.size(), 0);
+        send(clientSocket2, info.c_str(), info.size(), 0);
 
-            // Запрос действия от игрока
-            recv(playerNum == 1 ? clientSocket1 : clientSocket2, &action, sizeof(action), 0);
+        // Запрос действия от игрока
+        recv(playerNum == 1 ? clientSocket1 : clientSocket2, &action, sizeof(action), 0);
 
-            switch (action) {
+        switch (action) {
             case 1: // Атаковать
                 currentPlayer.attack(opponent);
                 break;
@@ -320,16 +320,19 @@ public:
             string victoryMsg = "Игрок " + to_string(playerNum) + " победил!\n";
             send(clientSocket1, victoryMsg.c_str(), victoryMsg.size(), 0);
             send(clientSocket2, victoryMsg.c_str(), victoryMsg.size(), 0);
+            cout << "Игрок " << playerNum << " победил!\n"; // Вывод на сервере
             break;
         }
 
+        // Передача хода следующему игроку
         if (playerNum == 1) {
-                playerTurn(2, *player2, *player1); // Передаем ход второму игроку
-            } else {
-                playerTurn(1, *player1, *player2); // Передаем ход первому игроку
-            }
+            playerTurn(2, *player2, *player1); // Передаем ход второму игроку
+        } else {
+            playerTurn(1, *player1, *player2); // Передаем ход первому игроку
+        }
     }
 }
+
 
 void startGame() {
         while (player1->isAlive() && player2->isAlive()) {
